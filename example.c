@@ -1,89 +1,60 @@
-#include <GL/gl.h>
-#include <X11/X.h>
-#include <X11/Xlib.h>
-#include <stdio.h>
+#define SWL_IMPLEMENTATION
+#include "swl.h"
 
 #define GLC_IMPLEMENTATION
 #include "glc.h"
 
 int main(void)
 {
-    Display *display = XOpenDisplay(NULL);
-
-    GLCBackendConfig backend_config;
-    backend_config.x11.display = display;
-    GLCBackend *backend = glcCreateBackend(&backend_config);
-    if(!backend) {
-        printf("Failed to create backend\n");
+    if(!swl_init()) {
         return -1;
     }
 
-    Colormap colormap = XCreateColormap(display, XDefaultRootWindow(display), 
-            XDefaultVisualOfScreen(XDefaultScreenOfDisplay(display)), AllocNone);
+    GLCBackendConfig glc_config;
+    glc_config.x11.display = swl_x11_get_display();
+    GLCBackend *glc = glcCreateBackend(&glc_config);
 
-    XSetWindowAttributes swa;
-    swa.override_redirect = True;
-    swa.border_pixel = None;
-    swa.background_pixel = XBlackPixel(display, XDefaultScreen(display));
-    swa.colormap = colormap;
-    swa.event_mask = StructureNotifyMask | KeyPressMask | KeyReleaseMask |
-                    PointerMotionMask | ButtonPressMask | ButtonReleaseMask |
-                    ExposureMask | FocusChangeMask | VisibilityChangeMask |
-                    EnterWindowMask | LeaveWindowMask | PropertyChangeMask;
-
-    Window window = XCreateWindow(
-            display,
-            XDefaultRootWindow(display),
-            0, 0, 800, 600, 0,
-            CopyFromParent, InputOutput, CopyFromParent,
-            CWBackPixel | CWColormap | CWBorderPixel | CWEventMask,
-            &swa);
-
-    XMapWindow(display, window);
-    XSync(display, False);
-
-    Atom wm_delete_window = XInternAtom(display, "WM_DELETE_WINDOW", True);
-    XSetWMProtocols(display, window, &wm_delete_window, 1);
+    swl_window_config window_config;
+    window_config.title = "Hello, World";
+    window_config.width = 800;
+    window_config.height = 600;
+    window_config.is_visible = 1;
+    window_config.is_resizable = 0;
+    swl_window *window = swl_create_window(&window_config);
 
     GLCContextConfig context_config;
-    context_config.is_core_profile = 1;
+    context_config.x11.window = swl_x11_get_window(window);
     context_config.version.major = 3;
     context_config.version.minor = 3;
-    context_config.x11.window = window;
-    GLCContext *context = glcCreateContext(backend, &context_config);
-    glcMakeContextCurrent(backend, context);
+    context_config.is_core_profile = 1;
+    GLCContext *context = glcCreateContext(glc, &context_config);
+
+    glcMakeContextCurrent(glc, context);
 
     printf("GL_RENDERER: %s\n", glGetString(GL_RENDERER));
     printf("GL_VERSION: %s\n", glGetString(GL_VERSION));
     printf("GLSL_VERSION: %s\n", glGetString(GL_SHADING_LANGUAGE_VERSION));
 
-    XEvent event;
-    Bool running = True;
+    swl_bool running = SWL_TRUE;
+    swl_event event;
     while(running) {
-        while(XPending(display)) {
-            XNextEvent(display, &event);
-            switch(event.type) {
-                case ClientMessage:
-                    {
-                        if((Atom)event.xclient.data.l[0] == wm_delete_window) {
-                            running = False;
-                            break;
-                        }
-                    } break;
-                default:
-                    break;
+        swl_poll_window_events();
+        while(swl_shift_event(&event)) {
+            if(event.type == SWL_EVENT_WINDOW_CLOSED) {
+                running = SWL_FALSE;
+                break;
             }
         }
 
         glClearColor(1.0f, 0.2f, 0.1f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
-        glcSwapBuffer(backend, context);
+        glClear(GL_COLOR_BUFFER_BIT);        
+        glcSwapBuffer(glc, context);
     }
 
-    glcDestroyContext(backend, context);
-    XDestroyWindow(display, window);
 
-    glcDestroyBackend(backend);
-    XFreeColormap(display, colormap);
-    XCloseDisplay(display);
+    glcDestroyContext(glc, context);
+    swl_destroy_window(window);
+
+    glcDestroyBackend(glc);
+    swl_deinit();
 }

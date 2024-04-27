@@ -15,7 +15,7 @@
         #define GLC_DISPLAY_WAYLAND
 
     Optionally provide the following defines with your own implementations:
-        #define GLC_LOG_ERROR(message) // If you define this, GLC will log message when error happened
+        #define GLC_LOG_MESSAGE(message) // If you define this, GLC will log message when error happened
         #define GLC_MALLOC // malloc. both free and malloc should be defined
         #define GLC_FREE // free. both free and malloc should be defined
 
@@ -28,9 +28,9 @@
 
 #include <string.h> // strstr, 
 
-#ifndef GLC_LOG_ERROR
+#ifndef GLC_LOG_MESSAGE
 #include <stdio.h>
-#define GLC_LOG_ERROR(message) printf("%s\n", (message));
+#define GLC_LOG_MESSAGE(message) printf("%s\n", (message));
 #endif
 
 #if !defined(GLC_MALLOC) && !defined(GLC_FREE)
@@ -47,10 +47,16 @@
 #define GLCDEF
 #endif
 
+#ifdef __linux__
+#if !defined(GLC_DISPLAY_X11) || !defined(GLC_DISPLAY_WAYLAND)
 #define GLC_DISPLAY_X11
+#endif
+#endif
 
 #ifdef GLC_DISPLAY_X11
-#include <X11/Xlib.h>
+typedef struct _XDisplay Display;
+typedef unsigned long XID;
+typedef XID Window;
 #endif
 
 #ifdef GLC_DISPLAY_WIN32
@@ -204,7 +210,7 @@ static int choose_glx_framebuffer_config(Display *display, int screenID,
 	int fb_count;
     GLXFBConfig* fbc = glXChooseFBConfig(display, screenID, glx_attribs, &fb_count);
     if (fbc == 0) {
-        GLC_LOG_ERROR("Failed to retrive GLX Framebuffer");
+        GLC_LOG_MESSAGE("Failed to retrive GLX Framebuffer");
         return 0;
     }
 
@@ -240,23 +246,23 @@ static int glcInitBackend_Platform(GLCBackend *backend, const GLCBackendConfig *
     int screenID = XDefaultScreen(display);
 
     if (!glXQueryExtension(display, &backend->glx.error_base, &backend->glx.event_base)) {
-        GLC_LOG_ERROR("GLX extension is not found");
+        GLC_LOG_MESSAGE("GLX extension is not found");
         return 0;
     }
 
     const char *extensions = glXQueryExtensionsString(display, screenID);
     if(!extensions) {
-        GLC_LOG_ERROR("GLX extensions string is not found");
+        GLC_LOG_MESSAGE("GLX extensions string is not found");
         return 0;
     }
 
     if (!glXQueryVersion(display, &backend->glx.major, &backend->glx.minor)) {
-        GLC_LOG_ERROR("Failed to query GLX version");
+        GLC_LOG_MESSAGE("Failed to query GLX version");
         return 0;
     }
 
     if (backend->glx.major == 1 && backend->glx.minor < 3) {
-        GLC_LOG_ERROR("GLC require GLX version 1.3 or above");
+        GLC_LOG_MESSAGE("GLC require GLX version 1.3 or above");
         return 0;
     }
 
@@ -310,19 +316,19 @@ static int glcInitBackend_Platform(GLCBackend *backend, const GLCBackendConfig *
         backend->glx.extensions.ARB_context_flush_control = 1;
 
     if(!choose_glx_framebuffer_config(display, screenID, backend)) {
-        GLC_LOG_ERROR("Failed to choose framebuffer config");
+        GLC_LOG_MESSAGE("Failed to choose framebuffer config");
         return 0;
     }
 
     backend->x11.visual_info = glXGetVisualFromFBConfig(display, backend->glx.fbconfig);
     if (backend->x11.visual_info == 0) {
-        GLC_LOG_ERROR("Could not create correct visual info");
+        GLC_LOG_MESSAGE("Could not create correct visual info");
         return 0;
     }
 
 
     if (screenID != backend->x11.visual_info->screen) {
-        GLC_LOG_ERROR("Screen ID doesnt match visual screen ID");
+        GLC_LOG_MESSAGE("Screen ID doesnt match visual screen ID");
         return 0;
     }
 
@@ -345,14 +351,14 @@ static int glcInitContext_Platform(GLCBackend *backend, GLCContext *context, con
         if (!backend->glx.extensions.ARB_create_context ||
                 !backend->glx.extensions.ARB_create_context_profile ||
                 !backend->glx.extensions.EXT_create_context_es2_profile) {
-            GLC_LOG_ERROR("GLX: OpenGL ES requested but GLX_EXT_create_context_es2_profile is unavailable");
+            GLC_LOG_MESSAGE("GLX: OpenGL ES requested but GLX_EXT_create_context_es2_profile is unavailable");
             return 0;
         }
     }
 
     if (!config->is_backward_compatible) {
         if (!backend->glx.extensions.ARB_create_context) {
-            GLC_LOG_ERROR("GLX: Forward compatibility requested but GLX_ARB_create_context_profile is unavailable");
+            GLC_LOG_MESSAGE("GLX: Forward compatibility requested but GLX_ARB_create_context_profile is unavailable");
             return 0;
         }
     }
@@ -365,7 +371,7 @@ static int glcInitContext_Platform(GLCBackend *backend, GLCContext *context, con
                 attribs[index++] = a; \
                 attribs[index++] = v; \
             } else { \
-                GLC_LOG_ERROR("Failed to create opengl context while assigning attribute"); \
+                GLC_LOG_MESSAGE("Failed to create opengl context while assigning attribute"); \
                 return 0; \
             } \
         } while(0)
@@ -396,7 +402,7 @@ static int glcInitContext_Platform(GLCBackend *backend, GLCContext *context, con
                 attribs);
 
         if (!result_context) {
-            GLC_LOG_ERROR("Failed to create GLX context with ARB");
+            GLC_LOG_MESSAGE("Failed to create GLX context with ARB");
         }
     } else {
         result_context = glXCreateNewContext(backend->x11.display, 
@@ -439,18 +445,18 @@ static void glcSwapBuffer_Platform(GLCBackend *backend, GLCContext *context)
 GLCBackend *glcCreateBackend(const GLCBackendConfig *config)
 {
     if(!config->x11.display) {
-        GLC_LOG_ERROR("Expecting a valid X11 in glcCreateBackend()");
+        GLC_LOG_MESSAGE("Expecting a valid X11 in glcCreateBackend()");
         return NULL;
     }
 
     GLCBackend *result = (GLCBackend *)GLC_MALLOC(sizeof(*result));
     if(!result) {
-        GLC_LOG_ERROR("Failed to allocate memory for GLCBackend at glcCreateBackend()");
+        GLC_LOG_MESSAGE("Failed to allocate memory for GLCBackend at glcCreateBackend()");
         return NULL;
     }
 
     if(!glcInitBackend_Platform(result, config)) {
-        GLC_LOG_ERROR("Failed to initialize backend in platform code");
+        GLC_LOG_MESSAGE("Failed to initialize backend in platform code");
         GLC_FREE(result);
         return NULL;
     }
@@ -469,7 +475,7 @@ void glcDestroyBackend(GLCBackend *backend)
 GLCContext *glcCreateContext(GLCBackend *backend, const GLCContextConfig *config)
 {
     if(!backend || !config) {
-        GLC_LOG_ERROR("Failed to create context due to invalid function glcCreateContext arguments");
+        GLC_LOG_MESSAGE("Failed to create context due to invalid function glcCreateContext arguments");
         return NULL;
     }
 
@@ -491,7 +497,7 @@ void glcDestroyContext(GLCBackend *backend, GLCContext *context)
 void glcMakeContextCurrent(GLCBackend *backend, GLCContext* context)
 {
     if(!backend) {
-        GLC_LOG_ERROR("glcMakeContextCurrent expecting a valid backend");
+        GLC_LOG_MESSAGE("glcMakeContextCurrent expecting a valid backend");
         return;
     }
     glcMakeContextCurrent_Platform(backend, context);
