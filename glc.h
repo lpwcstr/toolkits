@@ -60,7 +60,7 @@ typedef XID Window;
 #endif
 
 #ifdef GLC_DISPLAY_WIN32
-#error "Not implemented yet"
+#include <windows.h>
 #endif
 
 #ifdef GLC_DISPLAY_ANDROID
@@ -79,6 +79,11 @@ typedef struct GLCBackendConfig {
         Display *display;
     } x11;
 #endif
+#ifdef GLC_DISPLAY_WIN32
+    struct {
+        HINSTANCE hInstance;
+    } win32;
+#endif
 } GLCBackendConfig;
 
 typedef struct GLCContext GLCContext;
@@ -88,6 +93,11 @@ typedef struct GLCContextConfig {
     struct {
         Window window;
     } x11;
+#endif
+#ifdef GLC_DISPLAY_WIN32
+    struct {
+        HWND hWnd;
+    } win32;
 #endif
 
     struct {
@@ -119,6 +129,11 @@ GLCDEF void glcSwapBuffer(GLCBackend *backend, GLCContext *context);
 #endif
 
 struct GLCBackend {
+#ifdef GLC_DISPLAY_WIN32
+    struct {
+        HINSTANCE hInstance;
+    } win32;
+#endif
 #ifdef GLC_DISPLAY_X11
     struct {
         Display *display;
@@ -153,6 +168,13 @@ struct GLCBackend {
 };
 
 struct GLCContext {
+#ifdef GLC_DISPLAY_WIN32
+    struct {
+        HWND hWnd;
+    } x11;
+    struct {
+    } wgl;
+#endif
 #ifdef GLC_DISPLAY_X11
     struct {
         Window window;
@@ -163,6 +185,17 @@ struct GLCContext {
     } glx;
 #endif
 };
+
+#ifdef GLC_DISPLAY_WIN32
+
+static int glcInitBackend_Platform(GLCBackend *backend, const GLCBackendConfig *config);
+static void glcDeinitBackend_Platform(GLCBackend *backend);
+static int glcInitContext_Platform(GLCBackend *backend, GLCContext *context, const GLCContextConfig *config);
+static void glcDeinitContext_Platform(GLCBackend *backend, GLCContext *context);
+static void glcMakeContextCurrent_Platform(GLCBackend *backend, GLCContext *context);
+static void glcSwapBuffer_Platform(GLCBackend *backend, GLCContext *context);
+
+#endif
 
 #ifdef GLC_DISPLAY_X11
 static int glx_extensions_has(const char *extensions, const char *name) {
