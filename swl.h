@@ -29,9 +29,16 @@ typedef int swl_bool;
 #define SWL_FALSE 0
 #define SWL_NULL ((void *)0)
 
+typedef unsigned char swl_uint8;
 typedef unsigned int swl_uint32;
 
 typedef struct swl_window swl_window;
+
+#ifdef SWL_DISPLAY_WIN32
+#include <windows.h>
+HINSTANCE swl_win32_get_hinstance(void);
+HWND swl_win32_get_hwnd(swl_window *window);
+#endif
 
 #ifdef SWL_DISPLAY_X11
 typedef struct _XDisplay Display;
@@ -217,6 +224,20 @@ enum swl_keycode {
 
 #ifdef SWL_IMPLEMENTATION
 
+#ifdef SWL_DISPLAY_WIN32
+#include <windows.h>
+typedef struct swl_window__platform {
+    HWND hwnd;
+} swl_window__platform;
+
+typedef struct swl_application__platform {
+    HINSTANCE inst;
+    WNDCLASS wcls;
+    const char *wcls_name;
+    ATOM wcls_atom;
+} swl_application__platform;
+#endif
+
 #ifdef SWL_DISPLAY_X11
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
@@ -257,6 +278,152 @@ typedef struct swl_application {
 } swl_application;
 
 static swl_application APP = {0};
+
+static void *swl_memset(void *dst, const int val, swl_uint32 size)
+{
+    for(swl_uint32 i = 0; i < size; ++i)
+        ((swl_uint8 *)dst)[i] = (const swl_uint8)val;
+    return dst;
+}
+
+#ifdef SWL_DISPLAY_WIN32
+LRESULT CALLBACK _swl_win32_window_proc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+static swl_bool swl_init__platform(void)
+{
+    APP.platform.wcls_name = "SimpleWindowLibraryWi32Window";
+    APP.platform.inst = (HINSTANCE)GetModuleHandle(SWL_NULL);
+    if(!APP.platform.inst) {
+        SWL_LOG_MESSAGE("Failed to get the module handle");
+        return SWL_FALSE;
+    }
+
+    swl_memset(&APP.platform.wcls, 0, sizeof(APP.platform.wcls));
+    APP.platform.wcls.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
+    APP.platform.wcls.lpfnWndProc = _swl_win32_window_proc;
+    APP.platform.wcls.hInstance = APP.platform.inst;
+    APP.platform.wcls.hIcon = LoadIcon(APP.platform.inst, IDI_APPLICATION);
+    APP.platform.wcls.hCursor = LoadCursor(SWL_NULL, IDC_ARROW);
+    APP.platform.wcls.hbrBackground = (HBRUSH)COLOR_WINDOW;
+    APP.platform.wcls.lpszClassName = APP.platform.wcls_name;
+
+    APP.platform.wcls_atom = RegisterClass(&APP.platform.wcls);
+    if(!APP.platform.wcls_atom) {
+        SWL_LOG_MESSAGE("Failed to register window class");
+        return SWL_FALSE;
+    }
+
+    return SWL_TRUE;
+}
+
+static void swl_deinit__platform(void)
+{
+
+}
+
+static swl_bool swl_create_window__platform(swl_window *window, const swl_window_config *config)
+{
+    RECT content;
+    swl_memset(&content, 0, sizeof(content));
+    content.right = config->width;
+    content.bottom = config->height;
+
+    HWND hwnd = CreateWindowEx(
+            WS_EX_APPWINDOW,
+            MAKEINTATOM(APP.platform.wcls_atom),
+            config->title,
+            WS_OVERLAPPEDWINDOW,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            content.right - content.left,
+            content.bottom - content.top,
+            SWL_NULL,
+            SWL_NULL,
+            APP.platform.inst,
+            SWL_NULL);
+
+    if(!hwnd) {
+        SWL_LOG_MESSAGE("Failed to create win32 window");
+        return SWL_FALSE;
+    }
+
+    window->platform.hwnd = hwnd;
+
+    return SWL_TRUE;
+}
+
+static void swl_destroy_window__platform(swl_window *window)
+{
+}
+
+void swl_set_window_title(swl_window *window, const char *title)
+{
+    if(!window) {
+        SWL_LOG_MESSAGE("Please provide a valid window to swl_set_window_title()");
+        return;
+    }
+    SetWindowText(window->platform.hwnd, title);
+}
+
+void swl_set_window_visible(swl_window *window, swl_bool is_visible)
+{
+    if(!window) {
+        SWL_LOG_MESSAGE("Please provide a valid window to swl_set_window_visible()");
+        return;
+    }
+    swl_uint32 show_window_command_flag = is_visible ? SW_SHOWNA : SW_HIDE;
+    ShowWindow(window->platform.hwnd, show_window_command_flag);
+}
+
+void swl_set_window_resizable(swl_window *window, swl_bool is_resizable)
+{
+    // TODO: find a way to set window become resizable
+    // swl_uint32 resizable_flag = WS_OVERLAPPEDWINDOW;
+    // if(is_resizable) {
+    //     resizable_flag = resizable_flag ^ WS_THICKFRAME;
+    // }
+    // SetWindowLongPtr(window->platform.hwnd, GWL_STYLE, resizable_flag);
+}
+
+HINSTANCE swl_win32_get_hinstance(void)
+{
+    return APP.platform.inst;
+}
+
+HWND swl_win32_get_hwnd(swl_window *window)
+{
+    return window->platform.hwnd;
+}
+
+void swl_poll_window_events(void)
+{
+    MSG msg;
+    if(PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
+        if(msg.message == WM_QUIT) {
+            swl_event event;
+            event.type = SWL_EVENT_WINDOW_CLOSED;
+            swl_push_event(event);
+        } else {
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
+        }
+    }
+}
+
+LRESULT CALLBACK _swl_win32_window_proc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+    switch(uMsg) {
+        case WM_DESTROY:
+            {
+                PostQuitMessage(0);
+                return 0;
+            } break;
+        default:
+            break;
+    }
+    return DefWindowProc(hWnd, uMsg, wParam, lParam);
+}
+
+#endif // SWL_DISPLAY_WIN32
 
 #ifdef SWL_DISPLAY_X11
 static swl_bool swl_init__platform(void)
@@ -308,18 +475,13 @@ static swl_bool swl_create_window__platform(swl_window *window, const swl_window
     XSetWMProtocols(APP.platform.display, handle, &APP.platform.wm_delete_window, 1);
 
     window->platform.window = handle;
-    window->initialized = SWL_TRUE;
-
-    swl_set_window_title(window, config->title);
-    swl_set_window_visible(window, config->is_visible);
-    swl_set_window_resizable(window, config->is_resizable);
 
     return SWL_TRUE;
 }
 
 static void swl_destroy_window__platform(swl_window *window)
 {
-    window->initialized = SWL_FALSE;
+    XDestroyWindow(window->platform.window);
 }
 
 void swl_set_window_title(swl_window *window, const char *title)
@@ -498,6 +660,10 @@ swl_window *swl_create_window(const swl_window_config *config)
     }
 
     window->initialized = SWL_TRUE;
+
+    swl_set_window_title(window, config->title);
+    swl_set_window_visible(window, config->is_visible);
+    swl_set_window_resizable(window, config->is_resizable);
     return window;
 }
 
